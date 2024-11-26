@@ -221,9 +221,10 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
     const activatePlugin = async () => {
         log('location.hash', location.hash);
         if (
-            location.hash !== '#/chat' &&
-            location.hash !== '#/main/message' &&
-            !location.hash.startsWith('#/forward/')
+            location.hash !== '#/chat' && // 独立的聊天窗口
+            location.hash !== '#/main/message' && // 与联系人列表合并在一起的聊天窗口
+            location.hash !== '#/record' && // 消息记录
+            !location.hash.startsWith('#/forward/') // 合并转发
         ) return;
         log('Plugin activated');
 
@@ -231,14 +232,18 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
         const observer = new MutationObserver(mutations => {
             for (const mutation of mutations) {
                 if (mutation.type !== 'childList') continue;
-                const nodes = Array.from(mutation.addedNodes).filter(e => e.nodeName === 'DIV' && Array.from((e as HTMLDivElement).children).some(e => e.classList.contains('message')));
-                for (const node of (nodes as HTMLDivElement[])) {
-                    const textElement: HTMLSpanElement | null = node.querySelector('.message-content .text-element');
-                    if (
-                        textElement &&
-                        textElement.innerText.trim().startsWith('-----BEGIN PGP MESSAGE-----\n') &&
-                        textElement.innerText.trim().endsWith('\n-----END PGP MESSAGE-----')
-                    ) handlePGPMessageElement(textElement);
+                const nodes = Array.from(mutation.addedNodes);
+                for (const node of nodes) {
+                    if (node.nodeName !== 'DIV') continue;
+                    const messages = Array.from((node as HTMLDivElement).querySelectorAll('.message'));
+                    for (const message of messages) {
+                        const textElement: HTMLSpanElement | null = message.querySelector('.message-content .text-element');
+                        if (
+                            textElement &&
+                            textElement.innerText.trim().startsWith('-----BEGIN PGP MESSAGE-----\n') &&
+                            textElement.innerText.trim().endsWith('\n-----END PGP MESSAGE-----')
+                        ) handlePGPMessageElement(textElement);
+                    }
                 }
             }
         });

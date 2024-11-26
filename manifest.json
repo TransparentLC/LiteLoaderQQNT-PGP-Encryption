@@ -5,7 +5,7 @@
     "name": "PGP 加密",
     "slug": "PGP_Encryption",
     "description": "在 QQ 中使用 PGP 进行端到端加密，支持半自动加密和自动解密",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "icon": null,
     "authors": [
         {
@@ -24,10 +24,10 @@
         "renderer": "./renderer/index.js"
     },
     "repository": {
-        "repo": "TransparentLC/LietLoaderQQNT-PGP-Encryption",
+        "repo": "TransparentLC/LiteLoaderQQNT-PGP-Encryption",
         "branch": "master",
         "release": {
-            "tag": "0.1.0",
+            "tag": "0.1.1",
             "file": "LiteLoaderQQNT-PGP-Encryption"
         }
     }

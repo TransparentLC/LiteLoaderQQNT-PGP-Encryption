@@ -2,7 +2,7 @@
     "type": "module",
     "scripts": {
         "build": "electron-vite build && esbuild dist/renderer/index.js --minify --outfile=dist/renderer/index.js --allow-overwrite --charset=utf8",
-        "archive": "node --run build && 7z a -mx9 -tzip PGP-Encryption.zip -w dist/."
+        "archive": "node --run build && 7z a -mx9 -tzip LiteLoaderQQNT-PGP-Encryption.zip -w dist/."
     },
     "devDependencies": {
         "@electron-toolkit/tsconfig": "^1.0.1",
