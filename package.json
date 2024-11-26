@@ -1,0 +1,23 @@
+{
+    "type": "module",
+    "scripts": {
+        "build": "electron-vite build && esbuild dist/renderer/index.js --minify --outfile=dist/renderer/index.js --allow-overwrite --charset=utf8",
+        "archive": "node --run build && 7z a -mx9 -tzip PGP-Encryption.zip -w dist/."
+    },
+    "devDependencies": {
+        "@electron-toolkit/tsconfig": "^1.0.1",
+        "@types/html-minifier-terser": "^7.0.2",
+        "electron": "^31.7.5",
+        "electron-vite": "^2.1.0",
+        "esbuild": "^0.24.0",
+        "html-minifier-terser": "^7.2.0",
+        "typescript": "^5.7.2",
+        "vite": "^5.4.11",
+        "vite-plugin-checker": "^0.8.0",
+        "vite-plugin-cp": "^4.0.8"
+    },
+    "dependencies": {
+        "openpgp": "^5.11.2",
+        "petite-vue": "^0.4.1"
+    }
+}

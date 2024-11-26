@@ -1,0 +1,20 @@
+{
+    "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+    "include": [
+        "electron.vite.config.*",
+        "src/global.d.ts",
+        "src/main/**/*",
+        "src/preload/**/*"
+    ],
+    "compilerOptions": {
+        "lib": [
+            "ESNext",
+            "DOM"
+        ],
+        "composite": true,
+        "resolveJsonModule": true,
+        "types": [
+            "electron-vite/node"
+        ]
+    }
+}

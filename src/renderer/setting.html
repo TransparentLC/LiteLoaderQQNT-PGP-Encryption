@@ -1,0 +1,122 @@
+<div v-scope @vue:mounted="mounted">
+    <setting-section data-title="钥匙串">
+        <setting-panel>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>打开密钥目录</setting-text>
+                        <setting-text data-type="secondary">将密钥文件放到这个目录并刷新即可添加密钥</setting-text>
+                    </div>
+                    <setting-button data-type="secondary" @click="openKeychainFolder">打开</setting-button>
+                </setting-item>
+            </setting-list>
+            <setting-list data-direction="column" is-collapsible data-title="已有密钥">
+                <setting-item v-if="!keychain.length" data-direction="row">
+                    <div>
+                        <setting-text>没有可用的密钥</setting-text>
+                    </div>
+                </setting-item>
+                <setting-item v-for="key in keychain" data-direction="row">
+                    <div>
+                        <setting-text>
+                            <span
+                                :style="{
+                                    backgroundColor: key.private ? '#3f51b5' : '#4caf50',
+                                    padding: '0 .4em',
+                                    borderRadius: '4px',
+                                    fontSize: 'smaller',
+                                    color: '#fff'
+                                }"
+                            >{{ key.private ? '私钥' : '公钥' }}</span>
+                            {{ formatUserIDs(key.userIDs) }}
+                        </setting-text>
+                        <setting-text v-for="e in key.keys" data-type="secondary">{{ e.algorithm }} ({{ e.curve || e.bits }}) / {{ formatKeyID(e.keyID) }}</setting-text>
+                    </div>
+                </setting-item>
+            </setting-list>
+        </setting-panel>
+    </setting-section>
+    <setting-section data-title="密钥设置">
+        <setting-panel>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>个人密钥</setting-text>
+                        <setting-text data-type="secondary">消息将使用个人密钥加密和签名</setting-text>
+                    </div>
+                    <setting-select id="pgp-select-signkey" style="width:60%">
+                        <setting-option>（选择一个私钥）</setting-option>
+                        <setting-option
+                            v-for="key in keychain.filter(e => e.private)"
+                            :data-value="key.keyID"
+                            :title="`${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})`"
+                        >{{ `${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})` }}</setting-option>
+                    </setting-select>
+                </setting-item>
+            </setting-list>
+            <setting-list data-direction="column" is-collapsible data-title="公钥绑定">
+                <setting-item v-for="(item, index) in keyBinding" data-direction="row">
+                    <div v-if="keychain.some(e => e.keyID === item.keyID)" style="flex-grow:1;display:flex">
+                        <setting-text style="width:120px;min-width:120px">{{ item.uin }}</setting-text>
+                        <setting-text
+                        data-type="secondary"
+                        style="flex-grow:1;padding:0 8px"
+                        :title="`${formatUserIDs(keychain.find(e => e.keyID === item.keyID).userIDs)} (${formatKeyID(keychain.find(e => e.keyID === item.keyID).keyID)})`"
+                        >{{ `${formatUserIDs(keychain.find(e => e.keyID === item.keyID).userIDs)} (${formatKeyID(keychain.find(e => e.keyID === item.keyID).keyID)})` }}</setting-text>
+                    </div>
+                    <setting-button data-type="secondary" @click="keyBinding.splice(index, 1)">删除</setting-button>
+                </setting-item>
+                <setting-item data-direction="row">
+                    <div style="flex-grow:1;display:flex">
+                        <div class="q-input" style="display:inline-block;width:120px;min-width:120px;border-radius:4px">
+                            <input
+                                type="text"
+                                placeholder="QQ 号或群号"
+                                class="q-input__inner"
+                                style="padding:2px 4px"
+                                v-model="keyBindingInput.uin"
+                            >
+                        </div>
+                        <setting-select id="pgp-select-bindkey" style="flex-grow:1;padding:0 8px">
+                            <setting-option is-selected>（选择一个公钥）</setting-option>
+                            <setting-option
+                                v-for="key in keychain"
+                                :data-value="key.keyID"
+                                :title="`${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})`"
+                            >{{ `${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})` }}</setting-option>
+                        </setting-select>
+                    </div>
+                    <setting-button data-type="secondary" @click="addKeyBinding">添加</setting-button>
+                </setting-item>
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text data-type="secondary">在对应的聊天窗口中将使用该公钥和你的个人密钥加密</setting-text>
+                    </div>
+                    <setting-button data-type="primary" @click="saveKeyBinding">保存</setting-button>
+                </setting-item>
+            </setting-list>
+        </setting-panel>
+    </setting-section>
+    <setting-section data-title="关于">
+        <setting-panel>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>PGP-Encryption v{{ manifest.version }}</setting-text>
+                        <setting-text data-type="secondary">{{ manifest.description }}</setting-text>
+                    </div>
+                    <setting-button data-type="secondary" @click="openRepository">GitHub 仓库</setting-button>
+                </setting-item>
+            </setting-list>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>重新加载所有设置项</setting-text>
+                        <setting-text data-type="secondary">与密钥使用相关的设置需要重新打开聊天窗口才能生效</setting-text>
+                    </div>
+                    <setting-button data-type="secondary" @click="load">刷新</setting-button>
+                </setting-item>
+            </setting-list>
+        </setting-panel>
+    </setting-section>
+</div>

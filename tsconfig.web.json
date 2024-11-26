@@ -1,0 +1,16 @@
+{
+    "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+    "include": [
+        "src/global.d.ts",
+        "src/renderer/**/*.ts",
+        "src/preload/*.d.ts"
+    ],
+    "compilerOptions": {
+        "lib": [
+            "ESNext",
+            "DOM"
+        ],
+        "composite": true,
+        "resolveJsonModule": true
+    }
+}
