@@ -27,7 +27,9 @@ declare namespace PGP_Encryption {
             keyID: string,
         }[],
     }[]>;
+    const setSystemGPG: (enable: boolean) => Promise<void>;
     const getConfig: () => Promise<{
+        useSystemGPG: boolean,
         signKeyID: string | null,
         keyBinding: {
             uin: number,

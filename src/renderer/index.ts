@@ -57,6 +57,7 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
         signKeyID: null,
         keyBinding: [],
         keyBindingInput: { uin: '', keyID: null },
+        useSystemGPG: false,
         formatUserIDs,
         formatKeyID,
         log,
@@ -77,6 +78,11 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
             log('Save key binding', this.keyBinding);
             await PGP_Encryption.setKeyBinding(this.keyBinding.map(e => Object.assign({}, e)));
         },
+        async setSystemGPG() {
+            this.useSystemGPG = !this.useSystemGPG;
+            await PGP_Encryption.setSystemGPG(this.useSystemGPG);
+            log('Set system GPG', this.useSystemGPG);
+        },
         openKeychainFolder() {
             LiteLoader.api.openPath(`${LiteLoader.plugins.PGP_Encryption.path.data}/keychain`);
         },
@@ -90,6 +96,7 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
             log('Get keychain', this.keychain);
             const config = await PGP_Encryption.getConfig();
             log('Get config', config);
+            this.useSystemGPG = config.useSystemGPG;
             this.signKeyID = config.signKeyID;
             this.keyBinding.length = 0;
             this.keyBinding.push(...config.keyBinding.filter(e => this.keychain.some(t => t.keyID === e.keyID)));
@@ -119,9 +126,10 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
                 );
             });
             await this.load();
+            // @ts-ignore
+            // view.pgpapp = this;
         },
     }).mount(view);
-
 };
 
 /*
@@ -344,8 +352,12 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                             const editorInstance = (editorElement as any).ckeditorInstance;
                             const plaintext = viewToPlainText(editorInstance.editing.view.document.getRoot());
                             log('Encrypt plaintext', plaintext);
-                            const encrypted = await PGP_Encryption.encryptMessage(targetKey.keyID, plaintext);
-                            editorInstance.setData(encrypted.trim().split('\n').join('<br>'));
+                            try {
+                                const encrypted = await PGP_Encryption.encryptMessage(targetKey.keyID, plaintext);
+                                editorInstance.setData(encrypted.trim().split('\n').join('<br>'));
+                            } catch (err) {
+                                editorInstance.setData((err as Error).toString().trim().split('\n').join('<br>'));
+                            }
                         });
                     }
                 }

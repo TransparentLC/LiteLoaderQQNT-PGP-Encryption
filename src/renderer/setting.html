@@ -111,6 +111,15 @@
             <setting-list data-direction="column">
                 <setting-item data-direction="row">
                     <div>
+                        <setting-text>使用系统安装的 GnuPG</setting-text>
+                        <setting-text data-type="secondary">加密和解密由 GnuPG 处理，同时会自动将已有的密钥导入钥匙串</setting-text>
+                    </div>
+                    <setting-switch v-bind="{ 'is-active': useSystemGPG ? true : null }" @click="setSystemGPG"></setting-switch>
+                </setting-item>
+            </setting-list>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
                         <setting-text>重新加载所有设置项</setting-text>
                         <setting-text data-type="secondary">与密钥使用相关的设置需要重新打开聊天窗口才能生效</setting-text>
                     </div>
