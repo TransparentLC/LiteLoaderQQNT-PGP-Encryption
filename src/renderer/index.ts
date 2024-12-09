@@ -301,6 +301,7 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                         statusElement = document.createElement('small');
                         statusElement.classList.add('pgp-status');
                         statusElement.style.cursor = 'help';
+                        statusElement.style.display = 'none';
                         statusElement.innerText = '🔐 PGP 加密可用';
                         operationElement.insertAdjacentElement('afterbegin', growElement);
                         operationElement.insertAdjacentElement('afterbegin', statusElement);
