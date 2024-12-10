@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('PGP_Encryption', {
     getUserIDsByKeyID: (keyID: string) => ipcRenderer.invoke('PGP_Encryption.getUserIDsByKeyID', keyID),
     loadKeychain: () => ipcRenderer.invoke('PGP_Encryption.loadKeychain'),
     getKeychain: () => ipcRenderer.invoke('PGP_Encryption.getKeychain'),
-    setSystemGPG: (enable: boolean) => ipcRenderer.invoke('PGP_Encryption.setSystemGPG', enable),
+    setPluginMode: (mode: 'internal' | 'sys-gnupg') => ipcRenderer.invoke('PGP_Encryption.setPluginMode', mode),
     getConfig: () => ipcRenderer.invoke('PGP_Encryption.getConfig'),
     setSignKeyID: (keyID: string) => ipcRenderer.invoke('PGP_Encryption.setSignKeyID', keyID),
     getSignKeyID: () => ipcRenderer.invoke('PGP_Encryption.getSignKeyID'),

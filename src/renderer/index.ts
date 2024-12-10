@@ -2,7 +2,7 @@ import { createApp, nextTick } from 'petite-vue';
 import manifest from '../../manifest.json';
 import setting from './setting.html?raw';
 
-const log = (...data) => console.log('\x1b[92mPGP-Encryption\x1b[39m', ...data);
+const log = (...data) => console.debug('\x1b[92mPGP-Encryption\x1b[39m', ...data);
 const dp = new DOMParser;
 
 const formatUserIDs = (userIDs: { name: string, email: string }[]) => userIDs.map(e => `${e.name} <${e.email}>`).join(', ');
@@ -57,7 +57,7 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
         signKeyID: null,
         keyBinding: [],
         keyBindingInput: { uin: '', keyID: null },
-        useSystemGPG: false,
+        pluginMode: 'internal',
         formatUserIDs,
         formatKeyID,
         log,
@@ -78,10 +78,11 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
             log('Save key binding', this.keyBinding);
             await PGP_Encryption.setKeyBinding(this.keyBinding.map(e => Object.assign({}, e)));
         },
-        async setSystemGPG() {
-            this.useSystemGPG = !this.useSystemGPG;
-            await PGP_Encryption.setSystemGPG(this.useSystemGPG);
-            log('Set system GPG', this.useSystemGPG);
+        async setPluginMode(mode: 'internal' | 'sys-gnupg') {
+            this.pluginMode = mode;
+            await PGP_Encryption.setPluginMode(this.pluginMode);
+            await this.load()
+            log('Set system GPG', this.pluginMode);
         },
         openKeychainFolder() {
             LiteLoader.api.openPath(`${LiteLoader.plugins.PGP_Encryption.path.data}/keychain`);
@@ -96,7 +97,7 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
             log('Get keychain', this.keychain);
             const config = await PGP_Encryption.getConfig();
             log('Get config', config);
-            this.useSystemGPG = config.useSystemGPG;
+            this.pluginMode = config.pluginMode;
             this.signKeyID = config.signKeyID;
             this.keyBinding.length = 0;
             this.keyBinding.push(...config.keyBinding.filter(e => this.keychain.some(t => t.keyID === e.keyID)));
@@ -108,6 +109,16 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
                 } else {
                     log('Sign key ID invalid', this.signKeyID);
                     selectSignKey.children[0].setAttribute('is-selected', '');
+                    await this.setSignKey(this.signKeyID = null);
+                }
+
+                const selectPluginMode = view.querySelector('#pgp-select-mode')!;
+                const selectPluginModeSelected = Array.from(selectPluginMode.children).find(e => e.getAttribute('data-value') === this.pluginMode);
+                if (selectPluginModeSelected) {
+                    selectPluginModeSelected.setAttribute('is-selected', '');
+                } else {
+                    log('Sign key ID invalid', this.signKeyID);
+                    selectPluginMode.children[0].setAttribute('is-selected', '');
                     await this.setSignKey(this.signKeyID = null);
                 }
             });
@@ -123,6 +134,11 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
                 (view.querySelector('#pgp-select-bindkey'))!.addEventListener(
                     'selected',
                     (e: { detail: { name: string, value: string }}) => this.keyBindingInput.keyID = e.detail.value,
+                );
+                // @ts-expect-error "selected"不是标准事件名称
+                (view.querySelector('#pgp-select-mode'))!.addEventListener(
+                    'selected',
+                    (e: { detail: { name: string, value: string }}) => this.setPluginMode(e.detail.value),
                 );
             });
             await this.load();
@@ -248,8 +264,8 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                         const textElement: HTMLSpanElement | null = message.querySelector('.message-content .text-element');
                         if (
                             textElement &&
-                            textElement.innerText.trim().startsWith('-----BEGIN PGP MESSAGE-----\n') &&
-                            textElement.innerText.trim().endsWith('\n-----END PGP MESSAGE-----')
+                            textElement.innerText.trim().startsWith('-----BEGIN PGP MESSAGE-----') &&
+                            textElement.innerText.trim().endsWith('-----END PGP MESSAGE-----')
                         ) handlePGPMessageElement(textElement);
                     }
                 }

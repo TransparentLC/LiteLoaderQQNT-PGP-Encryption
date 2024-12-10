@@ -27,9 +27,9 @@ declare namespace PGP_Encryption {
             keyID: string,
         }[],
     }[]>;
-    const setSystemGPG: (enable: boolean) => Promise<void>;
+    const setPluginMode: (mode: 'internal' | 'sys-gnupg') => Promise<void>;
     const getConfig: () => Promise<{
-        useSystemGPG: boolean,
+        pluginMode: 'internal' | 'sys-gnupg',
         signKeyID: string | null,
         keyBinding: {
             uin: number,

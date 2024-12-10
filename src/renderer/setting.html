@@ -1,4 +1,29 @@
 <div v-scope @vue:mounted="mounted">
+    <setting-section data-title="通用">
+        <setting-panel>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>运行模式</setting-text>
+                        <setting-text data-type="secondary">选择本插件的运行模式</setting-text>
+                    </div>
+                    <setting-select id="pgp-select-mode" style="width:60%">
+                        <setting-option data-value="internal">内置模式</setting-option>
+                        <setting-option data-value="sys-gnupg">系统模式</setting-option>
+                    </setting-select>
+                </setting-item>
+            </setting-list>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>重新加载所有设置项</setting-text>
+                        <setting-text data-type="secondary">与密钥使用相关的设置需要重新打开聊天窗口才能生效</setting-text>
+                    </div>
+                    <setting-button data-type="secondary" @click="load">刷新</setting-button>
+                </setting-item>
+            </setting-list>
+        </setting-panel>
+    </setting-section>
     <setting-section data-title="钥匙串">
         <setting-panel>
             <setting-list data-direction="column">
@@ -108,7 +133,7 @@
                     <setting-button data-type="secondary" @click="openRepository">GitHub 仓库</setting-button>
                 </setting-item>
             </setting-list>
-            <setting-list data-direction="column">
+            <!-- <setting-list data-direction="column">
                 <setting-item data-direction="row">
                     <div>
                         <setting-text>使用系统安装的 GnuPG</setting-text>
@@ -116,16 +141,7 @@
                     </div>
                     <setting-switch v-bind="{ 'is-active': useSystemGPG ? true : null }" @click="setSystemGPG"></setting-switch>
                 </setting-item>
-            </setting-list>
-            <setting-list data-direction="column">
-                <setting-item data-direction="row">
-                    <div>
-                        <setting-text>重新加载所有设置项</setting-text>
-                        <setting-text data-type="secondary">与密钥使用相关的设置需要重新打开聊天窗口才能生效</setting-text>
-                    </div>
-                    <setting-button data-type="secondary" @click="load">刷新</setting-button>
-                </setting-item>
-            </setting-list>
+            </setting-list> -->
         </setting-panel>
     </setting-section>
 </div>

@@ -6,13 +6,14 @@ import * as openpgp from 'openpgp';
 
 openpgp.config.preferredCompressionAlgorithm = openpgp.enums.compression.zlib;
 
-const log = (...data) => console.log('\x1b[92mPGP-Encryption\x1b[39m', ...data);
+const log = (...data) => console.debug('\x1b[92mPGP-Encryption\x1b[39m', ...data);
+const error = (...data) => console.error('\x1b[92mPGP-Encryption\x1b[39m', ...data);
 const defaultConfig: {
-    useSystemGPG: boolean,
+    pluginMode: 'internal' | 'sys-gnupg',
     signKeyID: string | null,
     keyBinding: { uin: number, keyID: string }[],
 } = {
-    useSystemGPG: false,
+    pluginMode: 'internal',
     signKeyID: null,
     keyBinding: [],
 };
@@ -49,44 +50,51 @@ const loadKeychain = async () => {
 
     const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
 
-    if (config.useSystemGPG) {
-        try {
-            const gpgExportPublicOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
-                'gpg',
-                ['--armor', '--export'],
-                (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-            ));
-            await addKeys(gpgExportPublicOutput.stdout);
-        } catch (err) {
-            log('GnuPG export public key error', err);
+    switch (config.pluginMode) {
+        case 'internal': {
+            if (!fs.existsSync(keychainFolder)) {
+                await fs.promises.mkdir(keychainFolder, { recursive: true });
+            }
+            for (const f of await fs.promises.readdir(keychainFolder)) {
+                const file = path.join(keychainFolder, f);
+                log('Loading key from keychain folder', file);
+                const stat = await fs.promises.lstat(file);
+                if (stat.isDirectory()) continue;
+                const content = await fs.promises.readFile(file, { encoding: 'utf-8' });
+                try {
+                    await addKeys(content);
+                } catch (err) {
+                    error('Failed to load', file, err);
+                }
+            }
+            break
         }
-        try {
-            const gpgExportPrivateOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
-                'gpg',
-                ['--armor', '--export-secret-keys'],
-                (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-            ));
-            await addKeys(gpgExportPrivateOutput.stdout);
-        } catch (err) {
-            log('GnuPG export private key error', err);
+        case 'sys-gnupg': {
+            try {
+                const gpgExportPublicOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
+                    'gpg',
+                    ['--armor', '--export'],
+                    (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
+                ));
+                await addKeys(gpgExportPublicOutput.stdout);
+            } catch (err) {
+                error('GnuPG export public key error', err);
+            }
+            try {
+                const gpgExportPrivateOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
+                    'gpg',
+                    ['--armor', '--export-secret-keys'],
+                    (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
+                ));
+                await addKeys(gpgExportPrivateOutput.stdout);
+            } catch (err) {
+                error('GnuPG export private key error', err);
+            }
+            break
         }
+        default: error('No such mode.')
     }
 
-    if (!fs.existsSync(keychainFolder)) {
-        await fs.promises.mkdir(keychainFolder, { recursive: true });
-    }
-    for (const f of await fs.promises.readdir(keychainFolder)) {
-        const file = path.join(keychainFolder, f);
-        log('Loading key from keychain folder', file);
-        const stat = await fs.promises.lstat(file);
-        if (stat.isDirectory()) continue;
-        const content = await fs.promises.readFile(file, { encoding: 'utf-8' });
-        try {
-            await addKeys(content);
-        } catch (err) {
-            log('Failed to load', file, err);
-        }
-    }
     for (const kb of config.keyBinding) {
         if (kb.uin <= 0 || !publicSubkeys.has(kb.keyID)) continue;
         keyBindings.set(kb.uin, publicSubkeys.get(kb.keyID)!);
@@ -119,49 +127,54 @@ ipcMain.handle('PGP_Encryption.handleEncryptedMessage', async (_, armoredMessage
         data: null,
     };
     try {
-        if (config.useSystemGPG) {
-            const gpgDecryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
-                const p = childProcess.execFile(
-                    'gpg',
-                    [
-                        '--decrypt',
-                    ],
-                    { timeout: 5000 },
-                    (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-                );
-                p.stdin!.write(armoredMessage);
-                p.stdin!.end();
-            });
-            result.data = gpgDecryptOutput.stdout;
-        } else {
-            const message = await openpgp.readMessage({ armoredMessage });
-            result.keyIDs = message.getEncryptionKeyIDs().map(e => e.toHex());
-            for (const keyID of message.getEncryptionKeyIDs()) {
-                const key = privateSubkeys.get(keyID.toHex());
-                if (key) {
-                    const decrypted = await openpgp.decrypt({
-                        message,
-                        decryptionKeys: key,
-                        verificationKeys: result.keyIDs.reduce((a, c) => {
-                            const key = publicSubkeys.get(c);
-                            if (key) a.push(key);
-                            return a;
-                        }, [] as openpgp.PublicKey[]),
-                    });
-                    for (const signature of decrypted.signatures) {
-                        result.signatures.push({
-                            keyID: signature.keyID.toHex(),
-                            verified: await signature.verified.catch(() => false),
-                        })
+        switch (config.pluginMode) {
+            case 'internal': {
+                const message = await openpgp.readMessage({ armoredMessage });
+                result.keyIDs = message.getEncryptionKeyIDs().map(e => e.toHex());
+                for (const keyID of message.getEncryptionKeyIDs()) {
+                    const key = privateSubkeys.get(keyID.toHex());
+                    if (key) {
+                        const decrypted = await openpgp.decrypt({
+                            message,
+                            decryptionKeys: key,
+                            verificationKeys: result.keyIDs.reduce((a, c) => {
+                                const key = publicSubkeys.get(c);
+                                if (key) a.push(key);
+                                return a;
+                            }, [] as openpgp.PublicKey[]),
+                        });
+                        for (const signature of decrypted.signatures) {
+                            result.signatures.push({
+                                keyID: signature.keyID.toHex(),
+                                verified: await signature.verified.catch(() => false),
+                            })
+                        }
+                        result.data = decrypted.data as string;
+                        break;
                     }
-                    result.data = decrypted.data as string;
-                    break;
                 }
+                break
             }
+            case 'sys-gnupg': {
+                const gpgDecryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
+                    const p = childProcess.execFile(
+                        'gpg',
+                        [
+                            '--decrypt',
+                        ],
+                        { timeout: 5000 },
+                        (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
+                    );
+                    p.stdin!.write(armoredMessage);
+                    p.stdin!.end();
+                });
+                result.data = gpgDecryptOutput.stdout;
+            }
+            default: error('No such mode.')
         }
     } catch (err) {
         result.error = (err as Error);
-        log(err);
+        error(err);
     }
     return result;
 });
@@ -169,35 +182,43 @@ ipcMain.handle('PGP_Encryption.handleEncryptedMessage', async (_, armoredMessage
 ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyID: string, plaintext: string) => {
     const targetKey = publicSubkeys.get(targetKeyID)!;
     const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
-    if (config.useSystemGPG) {
-        const gpgEncryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
-            const p = childProcess.execFile(
-                'gpg',
-                [
-                    '--armor', '--encrypt',
-                    '--recipient', targetKeyID,
-                    ...(
-                        (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex())
-                            ? ['--recipient', signKey.getKeyID().toHex()]
-                            : []
-                    ),
-                    ...(signKey ? ['--sign', '--local-user', signKey.getKeyID().toHex()] : []),
-                ],
-                { timeout: 5000 },
-                (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-            );
-            p.stdin!.write(plaintext);
-            p.stdin!.end();
-        });
-        return gpgEncryptOutput.stdout;
-    } else {
-        const message = await openpgp.createMessage({ text: plaintext });
-        const encrypted = await openpgp.encrypt({
-            message,
-            encryptionKeys: (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex()) ? [signKey, targetKey] : targetKey,
-            signingKeys: signKey ?? undefined,
-        })
-        return encrypted;
+
+    switch (config.pluginMode) {
+        case 'internal': {
+            const message = await openpgp.createMessage({ text: plaintext });
+            const encrypted = await openpgp.encrypt({
+                message,
+                encryptionKeys: (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex()) ? [signKey, targetKey] : targetKey,
+                signingKeys: signKey ?? undefined,
+            })
+            return encrypted;
+        }
+        case 'sys-gnupg': {
+            const gpgEncryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
+                const p = childProcess.execFile(
+                    'gpg',
+                    [
+                        '--armor', '--encrypt',
+                        '--recipient', targetKeyID,
+                        ...(
+                            (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex())
+                                ? ['--recipient', signKey.getKeyID().toHex()]
+                                : []
+                        ),
+                        ...(signKey ? ['--sign', '--local-user', signKey.getKeyID().toHex()] : []),
+                    ],
+                    { timeout: 5000 },
+                    (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
+                );
+                p.stdin!.write(plaintext);
+                p.stdin!.end();
+            });
+            return gpgEncryptOutput.stdout;
+        }
+        default: {
+            error('No such mode.')
+            return
+        }
     }
 });
 
@@ -241,9 +262,9 @@ ipcMain.handle('PGP_Encryption.getKeychain', async (_) => {
     return result;
 });
 
-ipcMain.handle('PGP_Encryption.setSystemGPG', async (_, enable: boolean) => {
+ipcMain.handle('PGP_Encryption.setPluginMode', async (_, mode: 'internal' | 'sys-gnupg') => {
     const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
-    config.useSystemGPG = enable;
+    config.pluginMode = mode;
     LiteLoader.api.config.set('PGP_Encryption', config);
 });
 
