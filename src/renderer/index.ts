@@ -248,8 +248,8 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                         const textElement: HTMLSpanElement | null = message.querySelector('.message-content .text-element');
                         if (
                             textElement &&
-                            textElement.innerText.trim().startsWith('-----BEGIN PGP MESSAGE-----\n') &&
-                            textElement.innerText.trim().endsWith('\n-----END PGP MESSAGE-----')
+                            // 修改自 https://regex101.com/library/90b6kK
+                            textElement.innerText.match(/^-----BEGIN PGP MESSAGE-----\s*(?:.+?:.*\n)*\s*\n(?:[A-Za-z\d+/]*\n?)*={0,2}\n=(?:[A-Za-z\d+/]{4})?\n\s*-----END PGP MESSAGE-----\s*$/)
                         ) handlePGPMessageElement(textElement);
                     }
                 }
