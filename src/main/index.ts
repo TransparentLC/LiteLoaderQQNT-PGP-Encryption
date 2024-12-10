@@ -167,6 +167,7 @@ ipcMain.handle('PGP_Encryption.handleEncryptedMessage', async (_, armoredMessage
 });
 
 ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyID: string, plaintext: string) => {
+    const targetKey = publicSubkeys.get(targetKeyID)!;
     const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
     if (config.useSystemGPG) {
         const gpgEncryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
@@ -175,6 +176,11 @@ ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyID: string, p
                 [
                     '--armor', '--encrypt',
                     '--recipient', targetKeyID,
+                    ...(
+                        (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex())
+                            ? ['--recipient', signKey.getKeyID().toHex()]
+                            : []
+                    ),
                     ...(signKey ? ['--sign', '--local-user', signKey.getKeyID().toHex()] : []),
                 ],
                 { timeout: 5000 },
@@ -185,7 +191,6 @@ ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyID: string, p
         });
         return gpgEncryptOutput.stdout;
     } else {
-        const targetKey = publicSubkeys.get(targetKeyID)!;
         const message = await openpgp.createMessage({ text: plaintext });
         const encrypted = await openpgp.encrypt({
             message,
