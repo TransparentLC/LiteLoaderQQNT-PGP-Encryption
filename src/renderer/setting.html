@@ -1,16 +1,7 @@
 <div v-scope @vue:mounted="mounted">
-    <setting-section data-title="钥匙串">
+    <setting-section data-title="密钥设置">
         <setting-panel>
-            <setting-list data-direction="column">
-                <setting-item data-direction="row">
-                    <div>
-                        <setting-text>打开密钥目录</setting-text>
-                        <setting-text data-type="secondary">将密钥文件放到这个目录并刷新即可添加密钥</setting-text>
-                    </div>
-                    <setting-button data-type="secondary" @click="openKeychainFolder">打开</setting-button>
-                </setting-item>
-            </setting-list>
-            <setting-list data-direction="column" is-collapsible data-title="已有密钥">
+            <setting-list data-direction="column" is-collapsible data-title="钥匙串">
                 <setting-item v-if="!keychain.length" data-direction="row">
                     <div>
                         <setting-text>没有可用的密钥</setting-text>
@@ -30,14 +21,19 @@
                             >{{ key.private ? '私钥' : '公钥' }}</span>
                             {{ formatUserIDs(key.userIDs) }}
                         </setting-text>
-                        <setting-text v-for="e in key.keys" data-type="secondary">{{ e.algorithm }} ({{ e.curve || e.bits }}) / {{ formatKeyID(e.keyID) }}</setting-text>
+                        <setting-text
+                            v-for="e in [key, ...key.subkeys]"
+                            data-type="secondary"
+                            :title="formatKeyExtraInfo(e)"
+                        >{{ formatKeyAlgorithm(e.algorithm) }} ({{ e.curve || e.keyLength }}) / {{ formatKeyID(e.keyID) }} [{{ [
+                            ['sign', 'S'],
+                            ['certify', 'C'],
+                            ['encrypt', 'E'],
+                            ['authentication', 'A'],
+                        ].filter(([k, _]) => e.capabilities[k]).map(([_, v]) => v).join('') }}] {{ (e.validity &lt; 2 || ((e.expirationDate * 1e3) &lt; Date.now())) ? '⚠️' : '' }}</setting-text>
                     </div>
                 </setting-item>
             </setting-list>
-        </setting-panel>
-    </setting-section>
-    <setting-section data-title="密钥设置">
-        <setting-panel>
             <setting-list data-direction="column">
                 <setting-item data-direction="row">
                     <div>
@@ -106,15 +102,6 @@
                         <setting-text data-type="secondary">{{ manifest.description }}</setting-text>
                     </div>
                     <setting-button data-type="secondary" @click="openRepository">GitHub 仓库</setting-button>
-                </setting-item>
-            </setting-list>
-            <setting-list data-direction="column">
-                <setting-item data-direction="row">
-                    <div>
-                        <setting-text>使用系统安装的 GnuPG</setting-text>
-                        <setting-text data-type="secondary">加密和解密由 GnuPG 处理，同时会自动将已有的密钥导入钥匙串</setting-text>
-                    </div>
-                    <setting-switch v-bind="{ 'is-active': useSystemGPG ? true : null }" @click="setSystemGPG"></setting-switch>
                 </setting-item>
             </setting-list>
             <setting-list data-direction="column">

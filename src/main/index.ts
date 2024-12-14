@@ -1,42 +1,149 @@
 import childProcess from 'node:child_process';
-import fs from 'node:fs';
-import path from 'node:path';
 import { ipcMain } from 'electron';
-import * as openpgp from 'openpgp';
-
-openpgp.config.preferredCompressionAlgorithm = openpgp.enums.compression.zlib;
+import { LRUCache } from 'lru-cache';
+import * as GnuPG from '../gnupg.js';
 
 const log = (...data) => console.log('\x1b[92mPGP-Encryption\x1b[39m', ...data);
 const defaultConfig: {
-    useSystemGPG: boolean,
     signKeyID: string | null,
     keyBinding: { uin: number, keyID: string }[],
 } = {
-    useSystemGPG: false,
     signKeyID: null,
     keyBinding: [],
 };
 
-const keychain: Map<string, openpgp.PrivateKey | openpgp.PublicKey> = new Map;
-const privateSubkeys: Map<string, openpgp.PrivateKey> = new Map;
-const publicSubkeys: Map<string, openpgp.PublicKey> = new Map;
-const keyBindings: Map<number, openpgp.PublicKey> = new Map;
-let signKey: openpgp.PrivateKey | null = null;
+const keychain: Map<string, GnuPG.KeyInfo> = new Map;
+const privateSubkeys: Map<string, GnuPG.PrivateKeyInfo> = new Map;
+const publicSubkeys: Map<string, GnuPG.PublicKeyInfo> = new Map;
+const keyBindings: Map<number, GnuPG.PublicKeyInfo> = new Map;
+let signKey: GnuPG.PrivateKeyInfo | null = null;
+const decryptResultCache = new LRUCache<string, { stdout: string, stderr: string }>({
+    max: 256,
+    fetchMethod: key => new Promise((resolve, reject) => {
+        const p = childProcess.execFile(
+            'gpg',
+            ['--decrypt'],
+            { timeout: 30000 },
+            (error, stdout, stderr) => error ? reject(stderr || error) : resolve({ stdout, stderr }),
+        );
+        p.stdin!.write(key);
+        p.stdin!.end();
+    }),
+});
 
-const keychainFolder = path.join(LiteLoader.plugins.PGP_Encryption.path.data, 'keychain');
+const parseColonKeyList = (colonKeyList: string) => {
+    const keys: GnuPG.KeyInfo[] = [];
+    let currentKey: GnuPG.KeyInfo | null = null;
 
-const addKeys = async (armoredKeys: string) => {
-    const keys = await openpgp.readKeys({ armoredKeys });
-    for (const key of keys) {
-        if (key instanceof openpgp.PrivateKey) {
-            keychain.set(key.getKeyID().toHex(), key);
-            [key, ...key.subkeys].forEach(e => privateSubkeys.set(e.getKeyID().toHex(), key));
-            const publicKey = key.toPublic();
-            [publicKey, ...publicKey.subkeys].forEach(e => publicSubkeys.set(e.getKeyID().toHex(), publicKey));
-        } else if (key instanceof openpgp.PublicKey && !privateSubkeys.has(key.getKeyID().toHex())) {
-            keychain.set(key.getKeyID().toHex(), key);
-            [key, ...key.subkeys].forEach(e => publicSubkeys.set(e.getKeyID().toHex(), key));
+    for (const line of colonKeyList.split('\n')) {
+        const fields = line.trim().split(':');
+        switch (fields[0]) {
+            case 'sec':
+            case 'pub':
+                if (currentKey) keys.push(currentKey);
+                currentKey = {
+                    private: fields[0] === 'sec',
+                    validity: {
+                        i: GnuPG.KeyValidity.Invalid,
+                        r: GnuPG.KeyValidity.Revoked,
+                        e: GnuPG.KeyValidity.Expired,
+                        n: GnuPG.KeyValidity.Never,
+                        m: GnuPG.KeyValidity.Marginal,
+                        f: GnuPG.KeyValidity.Full,
+                        u: GnuPG.KeyValidity.Ultimate,
+                    }[fields[1]] || GnuPG.KeyValidity.Unknown,
+                    algorithm: parseInt(fields[3]),
+                    curve: fields[16],
+                    keyLength: parseInt(fields[2]),
+                    keyID: fields[4],
+                    creationDate: parseInt(fields[5]),
+                    expirationDate: fields[6] ? parseInt(fields[6]) : undefined,
+                    capabilities: {
+                        encrypt: fields[11].includes('e'),
+                        sign: fields[11].includes('s'),
+                        certify: fields[11].includes('c'),
+                        authentication: fields[11].includes('a'),
+                    },
+                    primaryCapabilities: {
+                        encrypt: fields[11].includes('E'),
+                        sign: fields[11].includes('S'),
+                        certify: fields[11].includes('C'),
+                        authentication: fields[11].includes('A'),
+                    },
+                    subkeys: [],
+                    userIDs: [],
+                }
+                break;
+            case 'ssb':
+            case 'sub':
+                if (
+                    !currentKey ||
+                    (currentKey.private && fields[0] !== 'ssb') ||
+                    (!currentKey.private && fields[0] !== 'sub')
+                ) throw new Error('Parse ssb/sub failed');
+                currentKey.subkeys.push({
+                    validity: {
+                        i: GnuPG.KeyValidity.Invalid,
+                        r: GnuPG.KeyValidity.Revoked,
+                        e: GnuPG.KeyValidity.Expired,
+                        n: GnuPG.KeyValidity.Never,
+                        m: GnuPG.KeyValidity.Marginal,
+                        f: GnuPG.KeyValidity.Full,
+                        u: GnuPG.KeyValidity.Ultimate,
+                    }[fields[1]] || GnuPG.KeyValidity.Unknown,
+                    algorithm: parseInt(fields[3]),
+                    curve: fields[16],
+                    keyLength: parseInt(fields[2]),
+                    keyID: fields[4],
+                    creationDate: parseInt(fields[5]),
+                    expirationDate: fields[6] ? parseInt(fields[6]) : undefined,
+                    capabilities: {
+                        encrypt: fields[11].includes('e'),
+                        sign: fields[11].includes('s'),
+                        certify: fields[11].includes('c'),
+                        authentication: fields[11].includes('a'),
+                    },
+                });
+                break;
+            case 'uid':
+                if (!currentKey) throw new Error('Parse uid failed');
+                // https://github.com/openpgpjs/openpgpjs/blob/b2bd8a0fdd12902484d65baa4ae4eb7f146fcd32/src/packet/userid.js#L75
+                const userID: { name?: string, email: string } = {
+                    name: undefined,
+                    email: '',
+                };
+                const m = /^(?<name>[^()]+\s+)?(?<comment>\([^()]+\)\s+)?(?<email><\S+@\S+>)$/.exec(fields[9]);
+                if (m !== null) {
+                    const { name, email } = m.groups!;
+                    userID.name = name?.trim() || '';
+                    userID.email = email.substring(1, email.length - 1);
+                } else if (/^[^\s@]+@[^\s@]+$/.test(fields[9])) {
+                    userID.email = fields[9];
+                } else {
+                    throw new Error('Parse uid failed');
+                }
+                currentKey.userIDs.push(userID);
+                break;
         }
+    }
+
+    if (currentKey) keys.push(currentKey);
+    return keys;
+};
+
+const addKeys = (keys: GnuPG.KeyInfo[]) => {
+    // const unixNow = Date.now() / 1e3;
+    for (const key of keys) {
+        // if (
+        //     key.expirationDate < unixNow ||
+        //     key.validity < GnuPG.KeyValidity.Marginal ||
+        //     !key.capabilities.encrypt
+        // ) continue;
+        keychain.set(key.keyID, key);
+        // @ts-expect-error
+        (key.private ? privateSubkeys : publicSubkeys).set(key.keyID, key)
+        // @ts-expect-error
+        key.subkeys.forEach(subkey => (key.private ? privateSubkeys : publicSubkeys).set(subkey.keyID, key));
     }
 };
 
@@ -49,44 +156,29 @@ const loadKeychain = async () => {
 
     const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
 
-    if (config.useSystemGPG) {
-        try {
-            const gpgExportPublicOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
-                'gpg',
-                ['--armor', '--export'],
-                (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-            ));
-            await addKeys(gpgExportPublicOutput.stdout);
-        } catch (err) {
-            log('GnuPG export public key error', err);
-        }
-        try {
-            const gpgExportPrivateOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
-                'gpg',
-                ['--armor', '--export-secret-keys'],
-                (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-            ));
-            await addKeys(gpgExportPrivateOutput.stdout);
-        } catch (err) {
-            log('GnuPG export private key error', err);
-        }
+    try {
+        const gpgExportPublicOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
+            'gpg',
+            ['--list-keys', '--with-colons'],
+            { timeout: 30000 },
+            (error, stdout, stderr) => error ? reject(stderr || error) : resolve({ stdout, stderr })
+        ));
+        addKeys(parseColonKeyList(gpgExportPublicOutput.stdout));
+    } catch (err) {
+        log('GnuPG export public key error', err);
+    }
+    try {
+        const gpgExportPrivateOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => childProcess.execFile(
+            'gpg',
+            ['--list-secret-keys', '--with-colons'],
+            { timeout: 30000 },
+            (error, stdout, stderr) => error ? reject(stderr || error) : resolve({ stdout, stderr })
+        ));
+        addKeys(parseColonKeyList(gpgExportPrivateOutput.stdout));
+    } catch (err) {
+        log('GnuPG export private key error', err);
     }
 
-    if (!fs.existsSync(keychainFolder)) {
-        await fs.promises.mkdir(keychainFolder, { recursive: true });
-    }
-    for (const f of await fs.promises.readdir(keychainFolder)) {
-        const file = path.join(keychainFolder, f);
-        log('Loading key from keychain folder', file);
-        const stat = await fs.promises.lstat(file);
-        if (stat.isDirectory()) continue;
-        const content = await fs.promises.readFile(file, { encoding: 'utf-8' });
-        try {
-            await addKeys(content);
-        } catch (err) {
-            log('Failed to load', file, err);
-        }
-    }
     for (const kb of config.keyBinding) {
         if (kb.uin <= 0 || !publicSubkeys.has(kb.keyID)) continue;
         keyBindings.set(kb.uin, publicSubkeys.get(kb.keyID)!);
@@ -103,62 +195,19 @@ ipcMain.handle('PGP_Encryption.loadKeychain', async (_) => {
 });
 
 ipcMain.handle('PGP_Encryption.handleEncryptedMessage', async (_, armoredMessage: string) => {
-    const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
     const result: {
         error: Error | null,
-        keyIDs: string[],
-        signatures: {
-            keyID: string,
-            verified: boolean,
-        }[],
+        output: string | null,
         data: string | null,
     } = {
         error: null,
-        keyIDs: [],
-        signatures: [],
+        output: null,
         data: null,
     };
     try {
-        if (config.useSystemGPG) {
-            const gpgDecryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
-                const p = childProcess.execFile(
-                    'gpg',
-                    [
-                        '--decrypt',
-                    ],
-                    { timeout: 5000 },
-                    (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-                );
-                p.stdin!.write(armoredMessage);
-                p.stdin!.end();
-            });
-            result.data = gpgDecryptOutput.stdout;
-        } else {
-            const message = await openpgp.readMessage({ armoredMessage });
-            result.keyIDs = message.getEncryptionKeyIDs().map(e => e.toHex());
-            for (const keyID of message.getEncryptionKeyIDs()) {
-                const key = privateSubkeys.get(keyID.toHex());
-                if (key) {
-                    const decrypted = await openpgp.decrypt({
-                        message,
-                        decryptionKeys: key,
-                        verificationKeys: result.keyIDs.reduce((a, c) => {
-                            const key = publicSubkeys.get(c);
-                            if (key) a.push(key);
-                            return a;
-                        }, [] as openpgp.PublicKey[]),
-                    });
-                    for (const signature of decrypted.signatures) {
-                        result.signatures.push({
-                            keyID: signature.keyID.toHex(),
-                            verified: await signature.verified.catch(() => false),
-                        })
-                    }
-                    result.data = decrypted.data as string;
-                    break;
-                }
-            }
-        }
+        const gpgDecryptOutput: { stdout: string, stderr: string } = (await decryptResultCache.fetch(armoredMessage))!;
+        result.data = gpgDecryptOutput.stdout;
+        result.output = gpgDecryptOutput.stderr;
     } catch (err) {
         result.error = (err as Error);
         log(err);
@@ -168,83 +217,35 @@ ipcMain.handle('PGP_Encryption.handleEncryptedMessage', async (_, armoredMessage
 
 ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyID: string, plaintext: string) => {
     const targetKey = publicSubkeys.get(targetKeyID)!;
-    const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
-    if (config.useSystemGPG) {
-        const gpgEncryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
-            const p = childProcess.execFile(
-                'gpg',
-                [
-                    '--armor', '--encrypt',
-                    '--recipient', targetKeyID,
-                    ...(
-                        (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex())
-                            ? ['--recipient', signKey.getKeyID().toHex()]
-                            : []
-                    ),
-                    ...(signKey ? ['--sign', '--local-user', signKey.getKeyID().toHex()] : []),
-                ],
-                { timeout: 5000 },
-                (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr })
-            );
-            p.stdin!.write(plaintext);
-            p.stdin!.end();
-        });
-        return gpgEncryptOutput.stdout;
-    } else {
-        const message = await openpgp.createMessage({ text: plaintext });
-        const encrypted = await openpgp.encrypt({
-            message,
-            encryptionKeys: (signKey && signKey.getKeyID().toHex() !== targetKey.getKeyID().toHex()) ? [signKey, targetKey] : targetKey,
-            signingKeys: signKey ?? undefined,
-        })
-        return encrypted;
-    }
+    const gpgEncryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
+        const p = childProcess.execFile(
+            'gpg',
+            [
+                '--armor', '--encrypt',
+                '--recipient', targetKey.keyID,
+                ...(
+                    (signKey && signKey.keyID !== targetKey.keyID)
+                        ? ['--recipient', signKey.keyID]
+                        : []
+                ),
+                ...(signKey ? ['--sign', '--local-user', signKey.keyID] : []),
+            ],
+            { timeout: 30000 },
+            (error, stdout, stderr) => error ? reject(stderr || error) : resolve({ stdout, stderr })
+        );
+        p.stdin!.write(plaintext);
+        p.stdin!.end();
+    });
+    return gpgEncryptOutput.stdout.split('\n').map(e => e.trim()).join('\n');
 });
 
 ipcMain.handle('PGP_Encryption.getUserIDsByKeyID', async (_, keyID: string) => {
     const key = privateSubkeys.get(keyID) || publicSubkeys.get(keyID) || null;
-    return key?.users.map(e => ({
-        name: e.userID?.name,
-        email: e.userID?.email,
-    }));
+    return key?.userIDs;
 });
 
 ipcMain.handle('PGP_Encryption.getKeychain', async (_) => {
-    const result: {
-        private: boolean,
-        userIDs: {
-            name: string,
-            email: string,
-        }[],
-        keyID: string,
-        keys: {
-            algorithm: string,
-            bits?: number,
-            curve?: string,
-            keyID: string,
-        }[],
-    }[] = [];
-    for (const key of keychain.values()) {
-        result.push({
-            private: key.isPrivate(),
-            userIDs: key.users.map(e => ({
-                name: e.userID!.name,
-                email: e.userID!.email,
-            })),
-            keyID: key.getKeyID().toHex(),
-            keys: [key, ...key.subkeys].map(e => ({
-                ...e.getAlgorithmInfo(),
-                keyID: e.getKeyID().toHex(),
-            })),
-        });
-    }
-    return result;
-});
-
-ipcMain.handle('PGP_Encryption.setSystemGPG', async (_, enable: boolean) => {
-    const config = LiteLoader.api.config.get('PGP_Encryption', defaultConfig);
-    config.useSystemGPG = enable;
-    LiteLoader.api.config.set('PGP_Encryption', config);
+    return Array.from(keychain.values());
 });
 
 ipcMain.handle('PGP_Encryption.getConfig', async (_) => {
@@ -269,11 +270,8 @@ ipcMain.handle('PGP_Encryption.setSignKeyID', async (_, keyID: string) => {
 ipcMain.handle('PGP_Encryption.getSignKeyID', async (_) => {
     if (signKey === null) return null;
     return {
-        userIDs: signKey.users.map(e => ({
-            name: e.userID?.name,
-            email: e.userID?.email,
-        })),
-        keyID: signKey.getKeyID().toHex(),
+        userIDs: signKey.userIDs,
+        keyID: signKey.keyID,
     };
 });
 
@@ -293,10 +291,7 @@ ipcMain.handle('PGP_Encryption.getKeyBinding', async (_, uin: number) => {
     const key = keyBindings.get(uin);
     if (!key) return null;
     return {
-        userIDs: key.users.map(e => ({
-            name: e.userID?.name,
-            email: e.userID?.email,
-        })),
-        keyID: key.getKeyID().toHex(),
+        userIDs: key.userIDs,
+        keyID: key.keyID,
     };
 });

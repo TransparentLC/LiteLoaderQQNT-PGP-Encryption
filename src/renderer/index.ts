@@ -1,4 +1,5 @@
 import { createApp, nextTick } from 'petite-vue';
+import * as GnuPG from '../gnupg.js';
 import manifest from '../../manifest.json';
 import setting from './setting.html?raw';
 
@@ -7,6 +8,26 @@ const dp = new DOMParser;
 
 const formatUserIDs = (userIDs: { name: string, email: string }[]) => userIDs.map(e => `${e.name} <${e.email}>`).join(', ');
 const formatKeyID = (keyID: string) => keyID.toUpperCase().match(/[\dA-F]{1,4}/g)!.join(' ');
+const formatKeyAlgorithm = (algorithm: GnuPG.KeyAlgorithm) => Object.keys(GnuPG.KeyAlgorithm)[Object.values(GnuPG.KeyAlgorithm).indexOf(algorithm)] || `KeyAlgorithm #${algorithm}`;
+const formatKeyExtraInfo = (key: GnuPG.SubKeyInfo) => [
+    `信任等级：${{
+        [GnuPG.KeyValidity.Revoked]: '已吊销',
+        [GnuPG.KeyValidity.Expired]: '已过期',
+        [GnuPG.KeyValidity.Unknown]: '未知',
+        [GnuPG.KeyValidity.Never]: '永不信任',
+        [GnuPG.KeyValidity.Marginal]: '勉强信任',
+        [GnuPG.KeyValidity.Full]: '完全信任',
+        [GnuPG.KeyValidity.Ultimate]: '绝对信任',
+    }[key.validity]}`,
+    `创建时间：${new Date(key.creationDate * 1e3).toISOString()}`,
+    `过期时间：${key.expirationDate ? new Date(key.expirationDate * 1e3).toISOString() : '永不过期'}`,
+    `密钥用途：${[
+        ['sign', '签名（Sign）'],
+        ['certify', '认证（Certify）'],
+        ['encrypt', '加密（Encrypt）'],
+        ['authentication', '身份验证（Authenticate）'],
+    ].filter(([k, _]) => key.capabilities[k]).map(([_, v]) => v).join('、')}`,
+].join('\n');
 const pollingQuerySelector = async (element: Element | Document, selector: string, timeout: number = 5000) => {
     const stop = Date.now() + timeout;
     do {
@@ -15,6 +36,11 @@ const pollingQuerySelector = async (element: Element | Document, selector: strin
         await new Promise(r => setTimeout(r, 200));
     } while (Date.now() < stop);
     return null;
+};
+
+// FIXME: 是否有更好的检测方法？Issue #1的正则表达式可能会出现无限递归
+const isPGPMessage = (text: string) => {
+    return text.match(/^-----BEGIN PGP MESSAGE-----\s*\n/) && text.endsWith('-----END PGP MESSAGE-----');
 };
 
 // https://github.com/ckeditor/ckeditor5-clipboard/blob/master/src/utils/viewtoplaintext.js
@@ -57,9 +83,10 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
         signKeyID: null,
         keyBinding: [],
         keyBindingInput: { uin: '', keyID: null },
-        useSystemGPG: false,
         formatUserIDs,
         formatKeyID,
+        formatKeyAlgorithm,
+        formatKeyExtraInfo,
         log,
         async setSignKey(keyID: string | null) {
             this.signKeyID = keyID;
@@ -78,14 +105,6 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
             log('Save key binding', this.keyBinding);
             await PGP_Encryption.setKeyBinding(this.keyBinding.map(e => Object.assign({}, e)));
         },
-        async setSystemGPG() {
-            this.useSystemGPG = !this.useSystemGPG;
-            await PGP_Encryption.setSystemGPG(this.useSystemGPG);
-            log('Set system GPG', this.useSystemGPG);
-        },
-        openKeychainFolder() {
-            LiteLoader.api.openPath(`${LiteLoader.plugins.PGP_Encryption.path.data}/keychain`);
-        },
         openRepository() {
             LiteLoader.api.openExternal(`https://github.com/${manifest.repository.repo}`);
         },
@@ -96,7 +115,6 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
             log('Get keychain', this.keychain);
             const config = await PGP_Encryption.getConfig();
             log('Get config', config);
-            this.useSystemGPG = config.useSystemGPG;
             this.signKeyID = config.signKeyID;
             this.keyBinding.length = 0;
             this.keyBinding.push(...config.keyBinding.filter(e => this.keychain.some(t => t.keyID === e.keyID)));
@@ -183,45 +201,23 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
         }
         if (result.error) {
             infoElementLockIcon.innerText = '❌';
-        } else if (result.data) {
-            infoElementLockIcon.innerText = showDecrypted ? '🔓' : '🔐';
         } else {
-            infoElementLockIcon.innerText = '🔒';
+            infoElementLockIcon.innerText = showDecrypted ? '🔓' : '🔒';
         }
     };
     infoElementLockIcon.onclick = toggleDecrypted;
     toggleDecrypted();
 
     if (result.error) {
+        decryptedElement.style.whiteSpace = 'pre-line';
         decryptedElement.appendChild(document.createTextNode(result.error.toString()));
     } else {
         infoElement.style.cursor = 'help';
-        infoElement.title = [
-            ...(result.signatures.length ? [
-                '这条消息使用以下密钥签名：',
-                ...await Promise.all(result.signatures.map(async e => {
-                    const userIDs = await PGP_Encryption.getUserIDsByKeyID(e.keyID);
-                    return `${userIDs?.length ? formatUserIDs(userIDs) : '???'} (${formatKeyID(e.keyID)})${e.verified ? '' : ' 签名无效'}`;
-                })),
-            ] : []),
-            '这条消息使用以下密钥加密：',
-            ...await Promise.all(result.keyIDs.map(async e => {
-                const userIDs = await PGP_Encryption.getUserIDsByKeyID(e);
-                return `${userIDs?.length ? formatUserIDs(userIDs) : '???'} (${formatKeyID(e)})`;
-            })),
-        ].join('\n');
-
-        if (result.data) {
-            const el = document.createElement('span');
-            el.classList.add('text-normal')
-            el.innerText = result.data;
-            decryptedElement.appendChild(el);
-        } else {
-            const el = document.createElement('span');
-            el.style.fontStyle = 'italic';
-            el.innerText = '没有找到可以解密这条消息的私钥';
-            decryptedElement.appendChild(el);
-        }
+        infoElement.title = result.output!;
+        const el = document.createElement('span');
+        el.classList.add('text-normal')
+        el.innerText = result.data!;
+        decryptedElement.appendChild(el);
     }
 };
 
@@ -246,11 +242,7 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                     const messages = Array.from((node as HTMLDivElement).querySelectorAll('.message'));
                     for (const message of messages) {
                         const textElement: HTMLSpanElement | null = message.querySelector('.message-content .text-element');
-                        if (
-                            textElement &&
-                            // 修改自 https://regex101.com/library/90b6kK
-                            textElement.innerText.match(/^-----BEGIN PGP MESSAGE-----\s*(?:.+?:.*\n)*\s*\n(?:[A-Za-z\d+/]*\n?)*={0,2}\n=(?:[A-Za-z\d+/]{4})?\n\s*-----END PGP MESSAGE-----\s*$/)
-                        ) handlePGPMessageElement(textElement);
+                        if (textElement && isPGPMessage(textElement.innerText)) handlePGPMessageElement(textElement);
                     }
                 }
             }

@@ -17,7 +17,7 @@
         "vite-plugin-cp": "^4.0.8"
     },
     "dependencies": {
-        "openpgp": "^5.11.2",
+        "lru-cache": "^11.0.2",
         "petite-vue": "^0.4.1"
     }
 }

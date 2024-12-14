@@ -3,31 +3,13 @@
 declare namespace PGP_Encryption {
     const handleEncryptedMessage: (armoredMessage: string) => Promise<{
         error: Error?,
-        keyIDs: string[],
-        signatures: {
-            keyID: string,
-            verified: boolean,
-        }[],
+        output: string?,
         data: string?,
     }>;
     const encryptMessage: (targetKeyID: string, plaintext: string) => Promise<string>;
-    const getUserIDsByKeyID: (keyID: string) => Promise<{ name: string, email: string }[] | null>;
+    const getUserIDsByKeyID: (keyID: string) => Promise<{ name?: string, email: string }[] | null>;
     const loadKeychain: () => Promise<void>;
-    const getKeychain: () => Promise<{
-        private: boolean,
-        userIDs: {
-            name: string,
-            email: string,
-        }[],
-        keyID: string,
-        keys: {
-            algorithm: string,
-            bits?: number,
-            curve?: string,
-            keyID: string,
-        }[],
-    }[]>;
-    const setSystemGPG: (enable: boolean) => Promise<void>;
+    const getKeychain: () => Promise<import('./gnupg.js').default.KeyInfo[]>;
     const getConfig: () => Promise<{
         useSystemGPG: boolean,
         signKeyID: string | null,
