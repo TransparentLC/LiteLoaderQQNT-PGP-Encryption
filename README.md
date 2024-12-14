@@ -48,6 +48,13 @@
 
 如果你设置了个人密钥，则消息也会使用该密钥进行加密和签名。反之则消息不会被签名，且发送后你自己也无法解密。
 
+> 如果密文需要被复制到 GnuPG 以外的 PGP 客户端上解密，你可能需要在加密前在 GnuPG 中修改你的密钥，关闭 AEAD (OCB) 加密模式，它目前存在兼容性问题。
+>
+> 参见：
+>
+> * [Should one really disable AEAD for recent GnuPG created PGP keys? - Information Security Stack Exchange](https://security.stackexchange.com/questions/275883)
+> * [GnuPG - ArchWiki (8.1 Disable unsupported AEAD mechanism)](https://wiki.archlinux.org/title/GnuPG#Disable_unsupported_AEAD_mechanism)
+
 ## 局限性
 
 * **只能处理纯文本**，无法处理图片、视频、文件等数据
