@@ -175,6 +175,10 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
 const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
     log('Handle PGP message', textElement.innerText);
 
+    // We are switching to system fonts on May 10, 2021 - Meta Stack Exchange
+    // https://meta.stackexchange.com/questions/364048
+    textElement.style.fontFamily = 'ui-monospace,"Cascadia Mono","Segoe UI Mono","Liberation Mono",Menlo,Monaco,Consolas,monospace';
+
     const infoElement = document.createElement('small');
     const infoElementLockIcon = document.createElement('span');
     infoElementLockIcon.style.cursor = 'pointer';
