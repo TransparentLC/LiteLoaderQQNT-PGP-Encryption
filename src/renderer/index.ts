@@ -40,7 +40,7 @@ const pollingQuerySelector = async (element: Element | Document, selector: strin
 
 // FIXME: 是否有更好的检测方法？Issue #1的正则表达式可能会出现无限递归
 const isPGPMessage = (text: string) => {
-    return text.match(/^-----BEGIN PGP MESSAGE-----\s*\n/) && text.endsWith('-----END PGP MESSAGE-----');
+    return text.match(/^-----BEGIN PGP MESSAGE-----\s*\n/) && text.match(/-----END PGP MESSAGE-----\s*$/);
 };
 
 // https://github.com/ckeditor/ckeditor5-clipboard/blob/master/src/utils/viewtoplaintext.js
