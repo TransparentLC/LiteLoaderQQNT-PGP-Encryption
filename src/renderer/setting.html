@@ -43,7 +43,7 @@
                     <setting-select id="pgp-select-signkey" style="width:60%">
                         <setting-option>（选择一个私钥）</setting-option>
                         <setting-option
-                            v-for="key in keychain.filter(e => e.private)"
+                            v-for="key in keychain.filter(e => e.private && e.primaryCapabilities.encrypt && e.primaryCapabilities.sign)"
                             :data-value="key.keyID"
                             :title="`${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})`"
                         >{{ `${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})` }}</setting-option>
@@ -76,7 +76,7 @@
                         <setting-select id="pgp-select-bindkey" style="flex-grow:1;padding:0 8px">
                             <setting-option is-selected>（选择一个公钥）</setting-option>
                             <setting-option
-                                v-for="key in keychain"
+                                v-for="key in keychain.filter(e => e.primaryCapabilities.encrypt)"
                                 :data-value="key.keyID"
                                 :title="`${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})`"
                             >{{ `${formatUserIDs(key.userIDs)} (${formatKeyID(key.keyID)})` }}</setting-option>
@@ -111,6 +111,14 @@
                         <setting-text data-type="secondary">与密钥使用相关的设置需要重新打开聊天窗口才能生效</setting-text>
                     </div>
                     <setting-button data-type="secondary" @click="load">刷新</setting-button>
+                </setting-item>
+            </setting-list>
+            <setting-list data-direction="column">
+                <setting-item data-direction="row">
+                    <div>
+                        <setting-text>清除缓存的解密消息</setting-text>
+                    </div>
+                    <setting-button data-type="secondary" @click="clearDecryptResultCache">清除</setting-button>
                 </setting-item>
             </setting-list>
         </setting-panel>

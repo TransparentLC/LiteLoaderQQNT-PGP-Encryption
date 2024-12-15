@@ -6,7 +6,7 @@ declare namespace PGP_Encryption {
         output: string?,
         data: string?,
     }>;
-    const encryptMessage: (targetKeyID: string, plaintext: string) => Promise<string>;
+    const encryptMessage: (targetKeyIDs: string[], plaintext: string) => Promise<string>;
     const getUserIDsByKeyID: (keyID: string) => Promise<{ name?: string, email: string }[] | null>;
     const loadKeychain: () => Promise<void>;
     const getKeychain: () => Promise<import('./gnupg.js').default.KeyInfo[]>;
@@ -27,13 +27,14 @@ declare namespace PGP_Encryption {
         keyID: string,
     } | null>;
     const setKeyBinding: (keyBinding: { uin: number, keyID: string }[]) => Promise<void>;
-    const getKeyBinding: (uin: number) => Promise<{
+    const getKeyBindings: (uin: number) => Promise<{
         userIDs: {
             name: string,
             email: string,
         }[],
         keyID: string,
-    } | null>;
+    }[] | null>;
+    const clearDecryptResultCache: () => Promise<void>;
 }
 
 declare namespace LiteLoader {

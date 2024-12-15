@@ -96,8 +96,7 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
         addKeyBinding() {
             const uin = parseInt(this.keyBindingInput.uin);
             const keyID = this.keyBindingInput.keyID;
-            if (uin > 0 && !this.keyBinding.some(e => e.uin === uin) && this.keychain.some(e => e.keyID === keyID)) {
-                this.keyBindingInput.uin = '';
+            if (uin > 0 && !this.keyBinding.some(e => e.uin === uin && e.keyID === keyID)) {
                 this.keyBinding.push({ uin, keyID });
             }
         },
@@ -107,6 +106,9 @@ export const onSettingWindowCreated = async (view: HTMLElement) => {
         },
         openRepository() {
             LiteLoader.api.openExternal(`https://github.com/${manifest.repository.repo}`);
+        },
+        async clearDecryptResultCache() {
+            await PGP_Encryption.clearDecryptResultCache();
         },
         async load() {
             await PGP_Encryption.loadKeychain();
@@ -261,13 +263,13 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                 }[];
                 keyID: string;
             } | null = null;
-            let targetKey: {
+            let targetKeys: {
                 userIDs: {
                     name: string;
                     email: string;
                 }[];
                 keyID: string;
-            } | null = null;
+            }[] | null = null;
             let uin: number | null = null;
 
             // FIXME: 使用各种方式hook而不是轮询，Object.defineProperty似乎不太管用
@@ -309,10 +311,10 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                     if (curAioData?.header.uin) {
                         signKey = await PGP_Encryption.getSignKeyID();
                         log('signKey', signKey);
-                        targetKey = await PGP_Encryption.getKeyBinding(parseInt(curAioData.header.uin));
-                        log('targetKey', parseInt(curAioData.header.uin), targetKey);
+                        targetKeys = await PGP_Encryption.getKeyBindings(parseInt(curAioData.header.uin));
+                        log('targetKey', parseInt(curAioData.header.uin), targetKeys);
                     }
-                    if (targetKey) {
+                    if (targetKeys?.length) {
                         statusElement.style.display = '';
                         statusElement.title = [
                             '按 Ctrl + / 键加密当前输入的消息',
@@ -321,8 +323,8 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                                 `${formatUserIDs(signKey.userIDs)} (${formatKeyID(signKey.keyID)})`,
                             ] : []),
                             '加密密钥：',
-                            ...((signKey && signKey.keyID !== targetKey.keyID) ? [`${formatUserIDs(signKey.userIDs)} (${formatKeyID(signKey.keyID)})`] : []),
-                            `${formatUserIDs(targetKey.userIDs)} (${formatKeyID(targetKey.keyID)})`,
+                            ...((signKey && !targetKeys.some(targetKey => signKey!.keyID === targetKey.keyID)) ? [`${formatUserIDs(signKey.userIDs)} (${formatKeyID(signKey.keyID)})`] : []),
+                            ...targetKeys.map(targetKey => `${formatUserIDs(targetKey.userIDs)} (${formatKeyID(targetKey.keyID)})`),
                         ].join('\n');
                     } else {
                         statusElement.style.display = 'none';
@@ -339,13 +341,13 @@ const handlePGPMessageElement = async (textElement: HTMLSpanElement) => {
                                 e.isComposing ||
                                 e.keyCode === 229 ||
                                 !(e.ctrlKey && e.key === '/') ||
-                                !targetKey
+                                !targetKeys?.length
                             ) return;
                             const editorInstance = (editorElement as any).ckeditorInstance;
                             const plaintext = viewToPlainText(editorInstance.editing.view.document.getRoot());
                             log('Encrypt plaintext', plaintext);
                             try {
-                                const encrypted = await PGP_Encryption.encryptMessage(targetKey.keyID, plaintext);
+                                const encrypted = await PGP_Encryption.encryptMessage(targetKeys.map(targetKey => targetKey.keyID), plaintext);
                                 editorInstance.setData(encrypted.trim().split('\n').join('<br>'));
                             } catch (err) {
                                 editorInstance.setData((err as Error).toString().trim().split('\n').join('<br>'));

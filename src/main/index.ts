@@ -15,10 +15,10 @@ const defaultConfig: {
 const keychain: Map<string, GnuPG.KeyInfo> = new Map;
 const privateSubkeys: Map<string, GnuPG.PrivateKeyInfo> = new Map;
 const publicSubkeys: Map<string, GnuPG.PublicKeyInfo> = new Map;
-const keyBindings: Map<number, GnuPG.PublicKeyInfo> = new Map;
+const keyBindings: Map<number, GnuPG.PublicKeyInfo[]> = new Map;
 let signKey: GnuPG.PrivateKeyInfo | null = null;
 const decryptResultCache = new LRUCache<string, { stdout: string, stderr: string }>({
-    max: 256,
+    max: 100,
     fetchMethod: key => new Promise((resolve, reject) => {
         const p = childProcess.execFile(
             'gpg',
@@ -181,7 +181,8 @@ const loadKeychain = async () => {
 
     for (const kb of config.keyBinding) {
         if (kb.uin <= 0 || !publicSubkeys.has(kb.keyID)) continue;
-        keyBindings.set(kb.uin, publicSubkeys.get(kb.keyID)!);
+        if (!keyBindings.has(kb.uin)) keyBindings.set(kb.uin, []);
+        keyBindings.get(kb.uin)!.push(publicSubkeys.get(kb.keyID)!);
     }
     if (config.signKeyID && privateSubkeys.has(config.signKeyID)) {
         signKey = privateSubkeys.get(config.signKeyID)!;
@@ -215,16 +216,20 @@ ipcMain.handle('PGP_Encryption.handleEncryptedMessage', async (_, armoredMessage
     return result;
 });
 
-ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyID: string, plaintext: string) => {
-    const targetKey = publicSubkeys.get(targetKeyID)!;
+ipcMain.handle('PGP_Encryption.encryptMessage', async (_, targetKeyIDs: string[], plaintext: string) => {
+    const targetKeys = targetKeyIDs.map(e => publicSubkeys.get(e)!);
     const gpgEncryptOutput: { stdout: string, stderr: string } = await new Promise((resolve, reject) => {
         const p = childProcess.execFile(
             'gpg',
             [
                 '--armor', '--encrypt',
-                '--recipient', targetKey.keyID,
+                ...targetKeys.reduce((a, c) => {
+                    a.push('--recipient');
+                    a.push(c.keyID);
+                    return a;
+                }, [] as string[]),
                 ...(
-                    (signKey && signKey.keyID !== targetKey.keyID)
+                    (signKey && !targetKeys.some(targetKey => signKey!.keyID === targetKey.keyID))
                         ? ['--recipient', signKey.keyID]
                         : []
                 ),
@@ -281,17 +286,23 @@ ipcMain.handle('PGP_Encryption.setKeyBinding', async (_, keyBinding: { uin: numb
     keyBindings.clear();
     for (const kb of keyBinding) {
         if (kb.uin <= 0 || !publicSubkeys.has(kb.keyID)) continue;
-        keyBindings.set(kb.uin, publicSubkeys.get(kb.keyID)!);
+        if (!keyBindings.has(kb.uin)) keyBindings.set(kb.uin, []);
+        keyBindings.get(kb.uin)!.push(publicSubkeys.get(kb.keyID)!);
         config.keyBinding.push(kb);
     }
+    config.keyBinding.sort((a, b) => a.uin !== b.uin ? (a.uin - b.uin) : a.keyID.localeCompare(b.keyID));
     LiteLoader.api.config.set('PGP_Encryption', config);
 });
 
-ipcMain.handle('PGP_Encryption.getKeyBinding', async (_, uin: number) => {
-    const key = keyBindings.get(uin);
-    if (!key) return null;
-    return {
+ipcMain.handle('PGP_Encryption.getKeyBindings', async (_, uin: number) => {
+    const keys = keyBindings.get(uin);
+    if (!keys?.length) return null;
+    return keys.map(key => ({
         userIDs: key.userIDs,
         keyID: key.keyID,
-    };
+    }));
+});
+
+ipcMain.handle('PGP_Encryption.clearDecryptResultCache', async (_) => {
+    decryptResultCache.clear();
 });
