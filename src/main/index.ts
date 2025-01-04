@@ -120,6 +120,9 @@ const parseColonKeyList = (colonKeyList: string) => {
                 } else if (/^[^\s@]+@[^\s@]+$/.test(fields[9])) {
                     userID.email = fields[9];
                 } else {
+                    // [help needed] 无法识别到密钥 · Issue #4 · TransparentLC/LiteLoaderQQNT-PGP-Encryption
+                    // https://github.com/TransparentLC/LiteLoaderQQNT-PGP-Encryption/issues/4
+                    // 处理没有邮箱的UserID
                     userID.name = fields[9];
                 }
                 currentKey.userIDs.push(userID);
