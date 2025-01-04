@@ -120,7 +120,7 @@ const parseColonKeyList = (colonKeyList: string) => {
                 } else if (/^[^\s@]+@[^\s@]+$/.test(fields[9])) {
                     userID.email = fields[9];
                 } else {
-                    throw new Error('Parse uid failed');
+                    userID.name = fields[9];
                 }
                 currentKey.userIDs.push(userID);
                 break;
