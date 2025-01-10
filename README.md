@@ -10,6 +10,11 @@
 
 使用插件前需要安装 [GnuPG](https://gnupg.org)。
 
+> [!IMPORTANT]  
+> 由于目前使用 LiteLoaderQQNT 会被检测（参见 LiteLoaderQQNT 的 Issue [#1051](https://github.com/LiteLoaderQQNT/LiteLoaderQQNT/issues/1051)、[#1044](https://github.com/LiteLoaderQQNT/LiteLoaderQQNT/issues/1044)、[#1032](https://github.com/LiteLoaderQQNT/LiteLoaderQQNT/issues/1032)），且我自己已经因此被封号两次，因此我暂时无法使用 LiteLoaderQQNT 并测试和更新这个项目。
+>
+> 如果你遇到了问题，请尽量提供 `gpg --list-secret-keys`、`gpg --list-keys`、添加 `--enable-logging` 参数启动 QQ 后终端和以及 DevTools 中和这个项目相关的输出（可以对敏感信息脱敏），我会尽量修复不需要运行 QQ 就能处理的问题。
+
 ## 使用方式
 
 ### 一些简单的基本概念
